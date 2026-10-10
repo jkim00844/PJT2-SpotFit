@@ -1,0 +1,17 @@
+# OS / Python
+.DS_Store
+Thumbs.db
+__pycache__/
+*.py[cod]
+
+# API 키 (네이버 데이터랩 등)
+config/
+.env
+
+# 다운로드 중 임시 파일
+*.part
+
+# GitHub 100MB 단일 파일 제한 → 공유 zip 또는 수집 스크립트로 받기
+SpotFit_raw_2025.zip
+data/raw/소상공인_상가정보_서울.csv
+data/raw/체류인구/
