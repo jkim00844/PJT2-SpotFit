@@ -2,7 +2,7 @@
 
 동네 특징(인구·연령·1인가구·집값·시설·유동 패턴) → 동네 유형 5가지(K-평균 군집)
 → 유형별 상권 구성, 상권 MBTI, 업종, 매출 시간대·연령, 개업·폐업, 소비 잠재력.
-그래프는 이승희/eda_figures/ 에, 요약표는 이승희/eda_tables/ 에 저장한다. 보고서: 이승희/EDA_raw_2025.md (10장)
+그래프는 이승희/eda_figures/ 에, 요약표는 이승희/eda_tables/ 에 저장한다. 보고서: 이승희/SpotFit_EDA_보고서.md (10장)
 
 실행: uv run --no-project --with pandas,matplotlib,openpyxl,scikit-learn python 이승희/eda_dong_2025.py   (저장소 루트에서)
 """

@@ -2,7 +2,7 @@
 
 대시보드 흐름(창업자 검사 → 3글자 유형 → 같은 유형 상권 추천 + 소비 잠재력 + 업종 정보)에 맞춰
 상권 3축 지표(L/V, E/P, S/G)를 만들 수 있는지, 8유형이 고르게 나뉘는지, 솔루션 재료가 있는지 살핀다.
-그래프는 이승희/eda_figures/ 에, 요약표는 이승희/eda_tables/ 에 저장한다. 보고서: 이승희/EDA_raw_2025.md (0~9장)
+그래프는 이승희/eda_figures/ 에, 요약표는 이승희/eda_tables/ 에 저장한다. 보고서: 이승희/SpotFit_EDA_보고서.md (0~9장)
 
 실행: uv run --no-project --with pandas,matplotlib,openpyxl,scikit-learn python 이승희/eda_raw_2025.py   (저장소 루트에서)
 """
