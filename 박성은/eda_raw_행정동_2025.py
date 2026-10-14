@@ -14,6 +14,8 @@ ROOT = Path(__file__).resolve().parents[1]
 RAW = ROOT / "data" / "raw"
 FIGURES = Path(__file__).resolve().parent / "eda_figures"
 FIGURES.mkdir(exist_ok=True)
+TABLES = Path(__file__).resolve().parent / "eda_tables"
+TABLES.mkdir(exist_ok=True)
 
 
 def read(path: str) -> pd.DataFrame:
@@ -91,8 +93,34 @@ def food_coffee_chart(frame: pd.DataFrame, rho: float) -> None:
     im.save(FIGURES / "Q4_행정동_음식지출_커피매출.png")
 
 
+def profile_chart(frame: pd.DataFrame) -> None:
+    im = Image.new("RGB", (1100, 700), "#ffffff")
+    d = ImageDraw.Draw(im)
+    title, body, small = font(27), font(20), font(16)
+    d.text((55, 25), "행정동 4가지 생활권 프로필", fill="#17243a", font=title)
+    d.text((55, 67), "2025 Q4 · 서울 동끼리 비교한 상대적인 특징 · 11개 동은 직장인구 자료 없음", fill="#566579", font=small)
+    cards = [
+        ("일터·2030", 50, 115, "#2b6cb0", "역삼1동 · 여의동"),
+        ("일터·전연령", 560, 115, "#7057a3", "대치1동 · 도곡1동"),
+        ("생활·2030", 50, 375, "#2c9672", "신촌동 · 신림동"),
+        ("생활·전연령", 560, 375, "#bd7a37", "삼양동 · 망우본동"),
+    ]
+    for name, x, y, color, examples in cards:
+        group = frame.loc[frame["생활권_프로필"] == name]
+        d.rounded_rectangle((x, y, x + 490, y + 230), radius=18, fill="#f6f8fb", outline="#d9e2ec", width=2)
+        d.rounded_rectangle((x, y, x + 12, y + 230), radius=5, fill=color)
+        d.text((x + 28, y + 19), name, fill=color, font=title)
+        d.text((x + 30, y + 67), f"{len(group)}개 동", fill="#17243a", font=body)
+        d.text((x + 30, y + 106), f"음식·식료품 지출 중 음식: {group['음식_식료품중_음식비중'].median():.1%}", fill="#334155", font=small)
+        d.text((x + 30, y + 137), f"주말 하루 유동 / 평일 하루 유동: {group['주말_평일_하루유동비'].median():.2f}배", fill="#334155", font=small)
+        d.text((x + 30, y + 174), f"예: {examples}", fill="#566579", font=small)
+    d.text((55, 640), "프로필은 추천 결과가 아닙니다. 실제 창업 판단에는 업종별 점포 수·매출·현장 확인이 더 필요합니다.", fill="#566579", font=small)
+    im.save(FIGURES / "Q4_행정동_생활권_4유형.png")
+
+
 dong_area = read("OA-22160_영역_행정동.csv")
 consumption = read("OA-22166_소비_행정동.csv")
+district_consumption = read("OA-22167_소비_자치구.csv")
 dong_foot = read("OA-22178_길단위인구_행정동.csv")
 dong_resident = read("OA-22183_상주인구_행정동.csv")
 dong_worker = read("OA-22184_직장인구_행정동.csv")
@@ -107,15 +135,81 @@ assert trade_area["행정동_코드"].isin(dong_area["행정동_코드"]).all()
 
 consumption_q4 = q4(consumption)
 dong = consumption_q4[["행정동_코드", "행정동_코드_명", "지출_총금액",
-                       "음식_지출_총금액", "여가_문화_지출_총금액"]].copy()
-for frame, column in ((dong_foot, "총_유동인구_수"),
-                      (dong_resident, "총_상주인구_수"),
+                       "음식_지출_총금액", "식료품_지출_총금액", "여가_문화_지출_총금액"]].copy()
+dong_foot_q4 = q4(dong_foot)
+foot_columns = ["행정동_코드", "총_유동인구_수", "연령대_20_유동인구_수", "연령대_30_유동인구_수"] + [
+    f"{day}_유동인구_수" for day in ("월요일", "화요일", "수요일", "목요일", "금요일", "토요일", "일요일")
+]
+dong = dong.merge(dong_foot_q4[foot_columns], on="행정동_코드", how="left", validate="one_to_one")
+for frame, column in ((dong_resident, "총_상주인구_수"),
                       (dong_worker, "총_직장_인구_수")):
     dong = dong.merge(q4(frame)[["행정동_코드", column]], on="행정동_코드",
                       how="left", validate="one_to_one")
 
 trade_area_counts = trade_area.groupby("행정동_코드")["상권_코드"].nunique().rename("trade_area_count")
 dong = dong.merge(trade_area_counts, on="행정동_코드", how="left", validate="one_to_one")
+district = q4(district_consumption)[["행정동_코드", "행정동_코드_명"]].rename(
+    columns={"행정동_코드": "자치구_코드", "행정동_코드_명": "자치구_명"}
+)
+dong["자치구_코드"] = dong["행정동_코드"].str[:5]
+dong = dong.merge(district, on="자치구_코드", how="left", validate="many_to_one")
+assert dong["자치구_명"].notna().all()
+
+# These are two transparent, relative descriptors of a dong, not the team's
+# official financial MBTI or an independently validated recommendation label.
+dong["직장_상주_비"] = dong["총_직장_인구_수"] / dong["총_상주인구_수"].replace(0, float("nan"))
+dong["2030_유동비중"] = (
+    dong["연령대_20_유동인구_수"] + dong["연령대_30_유동인구_수"]
+) / dong["총_유동인구_수"].replace(0, float("nan"))
+weekday_columns = [f"{day}_유동인구_수" for day in ("월요일", "화요일", "수요일", "목요일", "금요일")]
+weekend_columns = [f"{day}_유동인구_수" for day in ("토요일", "일요일")]
+dong["평일_하루평균_유동"] = dong[weekday_columns].sum(axis=1) / 5
+dong["주말_하루평균_유동"] = dong[weekend_columns].sum(axis=1) / 2
+dong["주말_평일_하루유동비"] = dong["주말_하루평균_유동"] / dong["평일_하루평균_유동"].replace(0, float("nan"))
+dong["음식_식료품중_음식비중"] = dong["음식_지출_총금액"] / (
+    dong["음식_지출_총금액"] + dong["식료품_지출_총금액"]
+).replace(0, float("nan"))
+work_cut = dong["직장_상주_비"].median()
+young_cut = dong["2030_유동비중"].median()
+has_work = dong["직장_상주_비"].notna()
+work_high = dong["직장_상주_비"] >= work_cut
+young_high = dong["2030_유동비중"] >= young_cut
+dong["생활권_프로필"] = "직장인구 자료 없음"
+dong.loc[has_work & work_high & young_high, "생활권_프로필"] = "일터·2030"
+dong.loc[has_work & work_high & ~young_high, "생활권_프로필"] = "일터·전연령"
+dong.loc[has_work & ~work_high & young_high, "생활권_프로필"] = "생활·2030"
+dong.loc[has_work & ~work_high & ~young_high, "생활권_프로필"] = "생활·전연령"
+work_rank = dong["직장_상주_비"].rank(pct=True)
+young_rank = dong["2030_유동비중"].rank(pct=True)
+dong["유형_경계"] = ""
+dong.loc[has_work & (work_rank.between(.45, .55) | young_rank.between(.45, .55)), "유형_경계"] = "중앙값 근처"
+profile_chart(dong)
+
+profile_output = dong[["자치구_명", "행정동_코드", "행정동_코드_명", "생활권_프로필", "유형_경계",
+                       "총_직장_인구_수", "총_상주인구_수", "직장_상주_비", "총_유동인구_수",
+                       "2030_유동비중", "주말_평일_하루유동비", "음식_지출_총금액",
+                       "식료품_지출_총금액", "음식_식료품중_음식비중", "trade_area_count"]].copy()
+profile_output["행정동_코드_명"] = profile_output["행정동_코드_명"].str.replace("?", "·", regex=False)
+profile_output = profile_output.rename(columns={"행정동_코드_명": "행정동_명", "trade_area_count": "배정된_상권_수"})
+profile_output["2030_유동비중"] *= 100
+profile_output["음식_식료품중_음식비중"] *= 100
+profile_output = profile_output.rename(columns={"2030_유동비중": "2030_유동비중_퍼센트",
+                                         "음식_식료품중_음식비중": "음식_식료품중_음식비중_퍼센트"})
+profile_output["총_직장_인구_수"] = profile_output["총_직장_인구_수"].astype("Int64")
+profile_output["배정된_상권_수"] = profile_output["배정된_상권_수"].astype("Int64")
+profile_output.sort_values(["자치구_명", "행정동_명"]).to_csv(
+    TABLES / "Q4_행정동_생활권_프로필.csv", index=False, encoding="utf-8-sig", float_format="%.4f"
+)
+
+foot_q1 = dong_foot.loc[dong_foot["기준_년분기_코드"] == 20251].copy()
+foot_q1["2030_유동비중_Q1"] = (
+    foot_q1["연령대_20_유동인구_수"] + foot_q1["연령대_30_유동인구_수"]
+) / foot_q1["총_유동인구_수"].replace(0, float("nan"))
+stability = dong[["행정동_코드", "2030_유동비중", "직장_상주_비"]].merge(
+    foot_q1[["행정동_코드", "2030_유동비중_Q1"]], on="행정동_코드", validate="one_to_one"
+).dropna(subset=["직장_상주_비"])
+changed_youth_label = int(((stability["2030_유동비중"] >= young_cut) !=
+                           (stability["2030_유동비중_Q1"] >= young_cut)).sum())
 keys = ["기준_년분기_코드", "상권_코드", "서비스_업종_코드"]
 panel = q4(trade_sales).merge(
     q4(trade_stores)[keys + ["전체_점포_수", "폐업_점포_수"]], on=keys,
@@ -184,8 +278,25 @@ top_total = consumption_q4.nlargest(5, "지출_총금액")
 category_columns = [c for c in consumption_q4.columns if c.endswith("_지출_총금액")]
 summary = {
     "source_rows": {"dong_area": len(dong_area), "consumption": len(consumption),
+                    "district_consumption": len(district_consumption),
                     "dong_foot": len(dong_foot), "dong_resident": len(dong_resident),
                     "dong_worker": len(dong_worker)},
+    "q4_dong_profiles": {
+        "work_per_resident_median_cut": round(work_cut, 4),
+        "young_foot_share_median_cut": round(young_cut, 4),
+        "work_vs_young_spearman": round(dong[["직장_상주_비", "2030_유동비중"]].corr(method="spearman").iloc[0, 1], 4),
+        "near_either_cut": int((dong["유형_경계"] != "").sum()),
+        "q1_vs_q4_young_label_changed_of_complete": changed_youth_label,
+        "complete_dongs": int(has_work.sum()),
+        "types": {
+            name: {"dongs": len(group), "work_per_resident_median": round(group["직장_상주_비"].median(), 4),
+                   "young_foot_share_median": round(group["2030_유동비중"].median(), 4),
+                   "food_spend_100m_krw_median": round(group["음식_지출_총금액"].median() / 1e8, 2),
+                   "food_share_of_food_plus_groceries_median": round(group["음식_식료품중_음식비중"].median(), 4),
+                   "weekend_vs_weekday_daily_foot_median": round(group["주말_평일_하루유동비"].median(), 4)}
+            for name, group in dong.loc[has_work].groupby("생활권_프로필")
+        },
+    },
     "q4_dong": {"total": len(dong), "foot_available": int(dong["총_유동인구_수"].notna().sum()),
                 "resident_available": int(dong["총_상주인구_수"].notna().sum()),
                 "worker_available": int(dong["총_직장_인구_수"].notna().sum()),
