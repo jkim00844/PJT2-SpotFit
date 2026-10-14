@@ -118,6 +118,127 @@ def profile_chart(frame: pd.DataFrame) -> None:
     im.save(FIGURES / "Q4_행정동_생활권_4유형.png")
 
 
+PROFILE_COLORS = {
+    "일터·2030": ("#2b6cb0", "#dcecf9"),
+    "일터·전연령": ("#7057a3", "#ece5f6"),
+    "생활·2030": ("#2c9672", "#dbf3e9"),
+    "생활·전연령": ("#bd7a37", "#faecd9"),
+    "직장인구 자료 없음": ("#64748b", "#e7ebf0"),
+}
+
+
+def all_dong_grid(frame: pd.DataFrame) -> None:
+    """Show every dong by name; rows are districts, not map coordinates."""
+    groups = list(frame.sort_values(["자치구_명", "행정동_코드_명"]).groupby("자치구_명", sort=True))
+    assert len(groups) == 25 and sum(len(group) for _, group in groups) == 425
+    assert max(len(group) for _, group in groups) <= 27
+    width, height = 3400, 2050
+    im = Image.new("RGB", (width, height), "#ffffff")
+    d = ImageDraw.Draw(im)
+    d.text((64, 35), "서울 425개 행정동의 생활권 유형", fill="#17243a", font=font(39))
+    d.text((65, 95), "2025 Q4 · 자치구별 가나다순 · 각 칸은 행정동 1개 · 칸의 위치는 실제 지도상의 위치가 아님", fill="#566579", font=font(22))
+    legend_x = 65
+    for name, (dark, light) in PROFILE_COLORS.items():
+        count = int((frame["생활권_프로필"] == name).sum())
+        d.rounded_rectangle((legend_x, 142, legend_x + 28, 170), radius=5, fill=light, outline=dark, width=2)
+        label = f"{name} {count}개"
+        d.text((legend_x + 38, 142), label, fill="#334155", font=font(21))
+        legend_x += 38 + d.textbbox((0, 0), label, font=font(21))[2] + 57
+    d.ellipse((legend_x + 8, 150, legend_x + 20, 162), fill="#17243a")
+    d.text((legend_x + 31, 142), "기준값 근처 76개", fill="#334155", font=font(21))
+
+    left, step, tile_w, tile_h = 195, 115, 109, 46
+    for row_no, (district_name, group) in enumerate(groups):
+        y = 205 + row_no * 69
+        if row_no % 2 == 0:
+            d.rectangle((43, y - 7, width - 43, y + 55), fill="#f8fafc")
+        d.text((62, y + 6), district_name, fill="#17243a", font=font(24))
+        d.text((153, y + 13), f"{len(group)}", fill="#64748b", font=font(18))
+        for col_no, item in enumerate(group.itertuples()):
+            x = left + col_no * step
+            dark, light = PROFILE_COLORS[item.생활권_프로필]
+            d.rounded_rectangle((x, y, x + tile_w, y + tile_h), radius=7, fill=light, outline=dark, width=2)
+            label = item.행정동_코드_명.replace("?", "·")
+            single = font(16)
+            if d.textbbox((0, 0), label, font=single)[2] <= tile_w - 9:
+                text_w = d.textbbox((0, 0), label, font=single)[2]
+                d.text((x + (tile_w - text_w) / 2, y + 10), label, fill="#17243a", font=single)
+            else:
+                half = (len(label) + 1) // 2
+                two_line = font(14)
+                for line_no, piece in enumerate((label[:half], label[half:])):
+                    text_w = d.textbbox((0, 0), piece, font=two_line)[2]
+                    d.text((x + (tile_w - text_w) / 2, y + 3 + line_no * 20), piece, fill="#17243a", font=two_line)
+            if item.유형_경계 == "중앙값 근처":
+                d.ellipse((x + tile_w - 12, y + 4, x + tile_w - 4, y + 12), fill="#17243a")
+    d.text((64, height - 85), "직장인구 자료가 없는 11개 동도 회색 칸으로 포함. 동별 실제 수치와 코드는 함께 제공한 CSV에서 확인.", fill="#566579", font=font(20))
+    d.text((64, height - 51), "이 유형은 동네의 상대적인 특징이며 팀의 금융 MBTI 또는 창업 추천 결과가 아님.", fill="#566579", font=font(20))
+    im.save(FIGURES / "Q4_425개_행정동_유형격자.png")
+
+
+def all_dong_scatter(frame: pd.DataFrame, work_cut: float, young_cut: float) -> None:
+    """Plot all 414 complete dongs; state the 11 missing worker observations."""
+    im = Image.new("RGB", (1500, 920), "#ffffff")
+    d = ImageDraw.Draw(im)
+    title, body, small = font(31), font(21), font(17)
+    d.text((70, 28), "행정동은 두 기준에서 어디에 놓일까?", fill="#17243a", font=title)
+    d.text((70, 75), "2025 Q4 · 점 1개 = 행정동 1개 · 직장인구가 있는 414개 동", fill="#566579", font=small)
+    left, right, top, bottom = 145, 1120, 170, 765
+    x_min, x_max, y_min, y_max = -5.0, 2.0, 10.0, 70.0
+
+    def xy(work_ratio: float, young_ratio: float) -> tuple[float, float]:
+        x = left + (math.log10(work_ratio) - x_min) / (x_max - x_min) * (right - left)
+        y = bottom - (young_ratio * 100 - y_min) / (y_max - y_min) * (bottom - top)
+        return x, y
+
+    for exponent in range(-5, 3):
+        x = left + (exponent - x_min) / (x_max - x_min) * (right - left)
+        d.line((x, top, x, bottom), fill="#e8edf3", width=2)
+        tick = f"{10 ** exponent:.{-exponent}f}" if exponent < 0 else str(10 ** exponent)
+        tick_w = d.textbbox((0, 0), tick, font=small)[2]
+        d.text((x - tick_w / 2, bottom + 12), tick, fill="#64748b", font=small)
+    for value in range(10, 71, 10):
+        y = bottom - (value - y_min) / (y_max - y_min) * (bottom - top)
+        d.line((left, y, right, y), fill="#e8edf3", width=2)
+        d.text((83, y - 10), f"{value}%", fill="#64748b", font=small)
+    cut_x, cut_y = xy(work_cut, young_cut)
+    d.line((cut_x, top, cut_x, bottom), fill="#334155", width=3)
+    d.line((left, cut_y, right, cut_y), fill="#334155", width=3)
+    d.text((cut_x + 9, top + 7), f"서울 동 중앙값 {work_cut:.3f}", fill="#334155", font=small)
+    d.text((left + 10, cut_y - 30), f"2030 중앙값 {young_cut:.1%}", fill="#334155", font=small)
+    d.rectangle((left, top, right, bottom), outline="#a9b8ca", width=2)
+
+    overlay = Image.new("RGBA", im.size, (0, 0, 0, 0))
+    od = ImageDraw.Draw(overlay)
+    for _, row in frame.loc[frame["직장_상주_비"].notna()].iterrows():
+        x, y = xy(row["직장_상주_비"], row["2030_유동비중"])
+        dark = PROFILE_COLORS[row["생활권_프로필"]][0]
+        rgb = tuple(bytes.fromhex(dark[1:]))
+        od.ellipse((x - 6, y - 6, x + 6, y + 6), fill=(*rgb, 150), outline=(*rgb, 230), width=2)
+    im = Image.alpha_composite(im.convert("RGBA"), overlay).convert("RGB")
+    d = ImageDraw.Draw(im)
+    for name, dx, dy in (("역삼1동", 12, -23), ("대치1동", 12, 7),
+                         ("신림동", -70, -28), ("삼양동", -45, 15)):
+        row = frame.loc[frame["행정동_코드_명"] == name].iloc[0]
+        x, y = xy(row["직장_상주_비"], row["2030_유동비중"])
+        d.ellipse((x - 10, y - 10, x + 10, y + 10), outline="#17243a", width=3)
+        d.text((x + dx, y + dy), name, fill="#17243a", font=small)
+
+    d.text((375, 810), "직장인구 / 상주인구 (로그 눈금)", fill="#17243a", font=body)
+    d.text((70, 855), "세로축: 오가는 사람 중 20·30대 비율. 직장인구가 없는 11개 동은 점을 찍지 않았으며 격자 그림에는 포함.", fill="#566579", font=small)
+    d.text((1160, 178), "유형별 동 수", fill="#17243a", font=body)
+    for index, (name, (dark, _)) in enumerate(PROFILE_COLORS.items()):
+        y = 235 + index * 73
+        d.ellipse((1165, y + 2, 1187, y + 24), fill=dark)
+        d.text((1198, y - 2), name, fill="#334155", font=font(18))
+        count = int((frame["생활권_프로필"] == name).sum())
+        d.text((1198, y + 27), f"{count}개 동", fill="#64748b", font=small)
+    d.text((1160, 640), "선은 서울 동의 중앙값", fill="#566579", font=small)
+    d.text((1160, 671), "두 축 모두 상대 비교", fill="#566579", font=small)
+    d.text((1160, 702), "추천 점수 아님", fill="#566579", font=small)
+    im.save(FIGURES / "Q4_행정동_두기준_분포.png")
+
+
 dong_area = read("OA-22160_영역_행정동.csv")
 consumption = read("OA-22166_소비_행정동.csv")
 district_consumption = read("OA-22167_소비_자치구.csv")
@@ -184,6 +305,8 @@ young_rank = dong["2030_유동비중"].rank(pct=True)
 dong["유형_경계"] = ""
 dong.loc[has_work & (work_rank.between(.45, .55) | young_rank.between(.45, .55)), "유형_경계"] = "중앙값 근처"
 profile_chart(dong)
+all_dong_grid(dong)
+all_dong_scatter(dong, work_cut, young_cut)
 
 profile_output = dong[["자치구_명", "행정동_코드", "행정동_코드_명", "생활권_프로필", "유형_경계",
                        "총_직장_인구_수", "총_상주인구_수", "직장_상주_비", "총_유동인구_수",
